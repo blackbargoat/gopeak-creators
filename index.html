@@ -89,6 +89,14 @@ form.f{display:grid;gap:10px;text-align:left}
 .linkbtn{color:var(--blue-hi);font-weight:700;font-size:14px;padding:8px}
 .handles{display:grid;gap:10px}
 
+
+.idea .art{position:relative;aspect-ratio:3/4}
+.idea .art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.idea .art.has>svg{display:none}
+.idea .art.has::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,0) 30%,rgba(0,0,0,0) 70%,rgba(0,0,0,.35))}
+.idea .art .views{z-index:1}
+.player{margin:14px auto 0;width:100%;max-width:330px;aspect-ratio:9/16;border-radius:22px;overflow:hidden;background:#0b0b0d}
+.player iframe{width:100%;height:100%;border:0;display:block}
 /* brief + pro tiles */
 .duo{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
 .tile3d{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:16px;border-radius:24px;background:var(--card);box-shadow:0 5px 0 #050506,0 10px 22px rgba(0,0,0,.5);text-align:left;transition:transform .12s,box-shadow .12s}
@@ -627,7 +635,7 @@ async function loadVideos() {
     sb.from("cp_posts").select("*").order("detected_at", { ascending: false }).limit(300),
   ]);
   S.subs = s.data || []; S.posts = p.data || [];
-  if (!S.refs) { const { data } = await sb.from("cp_references").select("*").order("sort").order("created_at"); S.refs = data || []; }
+  if (!S.refs) { const { data } = await sb.from("cp_references").select("*").order("sort").order("created_at"); S.refs = await enrichRefs(data || []); }
   renderVideos();
 }
 const thumbCache = {};
@@ -690,7 +698,7 @@ function emptyBox(t, icon, cta) {
 async function loadRefs(force) {
   if (!S.refs || force) {
     const { data } = await sb.from("cp_references").select("*").order("sort").order("created_at");
-    S.refs = data || [];
+    S.refs = await enrichRefs(data || []);
   }
   renderIdeas(); renderRefPick();
 }
@@ -698,7 +706,7 @@ function renderIdeas() {
   const refs = S.refs || [];
   $("#ideas").innerHTML = refs.length ? refs.map((r, i) => {
     const f = fmtOf(r.format), d = { easy: 1, med: 2, medium: 2, hard: 3 }[r.difficulty] || 2;
-    return `<button class="idea" data-i="${i}"><div class="art" style="background:linear-gradient(160deg,${f.c[0]},${f.c[1]})">${ART(f)}${r.views ? `<span class="views"><svg viewBox="0 0 24 24" fill="#000"><path d="M8 5v14l11-7z"/></svg>${fmt(r.views)}</span>` : ""}</div>
+    return `<button class="idea" data-i="${i}"><div class="art${r.thumb ? " has" : ""}" style="background:linear-gradient(160deg,${f.c[0]},${f.c[1]})">${r.thumb ? `<img src="${esc(r.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has');this.remove()">` : ""}${ART(f)}${r.views ? `<span class="views"><svg viewBox="0 0 24 24" fill="#000"><path d="M8 5v14l11-7z"/></svg>${fmt(r.views)}</span>` : ""}</div>
       <div class="meta"><b>${esc((r.on_screen_text || r.title || "idea").slice(0, 48))}</b><small>${esc((r.format || "").split(/[\/-]/)[0])}<span class="dots">${[1, 2, 3].map((k) => `<i class="${k <= d ? "on" : ""}"></i>`).join("")}</span></small></div></button>`;
   }).join("") : `<div style="grid-column:1/-1">${emptyBox("ideas show up here soon", '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>')}</div>`;
   $$("#ideas .idea").forEach((b) => b.onclick = () => openIdea(refs[b.dataset.i]));
@@ -707,13 +715,30 @@ function openIdea(r) {
   const f = fmtOf(r.format), beats = (r.structure || []).slice(0, 5), shots = (r.shot_list || []).slice(0, 6);
   openSheet(`
     <div class="row" style="gap:12px"><div class="av" style="background:linear-gradient(160deg,${f.c[0]},${f.c[1]});box-shadow:none;width:48px;height:48px">${ART(f).replace("<svg", '<svg width="24" height="24"')}</div>
-      <div><h3>${esc(r.title || r.on_screen_text || "idea")}</h3><span class="label" style="margin-top:4px">${r.views ? fmt(r.views) + " views" : ""}${r.length_sec ? " · " + esc(r.length_sec) + "s" : ""}</span></div></div>
-    ${r.on_screen_text ? `<div class="ost"><span>${esc(r.on_screen_text)}</span></div>` : ""}
+      <div><h3>${esc(r.hook || r.title || r.on_screen_text || "idea")}</h3><span class="label" style="margin-top:4px">${r.views ? fmt(r.views) + " views" : ""}${r.length_sec ? " · " + esc(r.length_sec) + "s" : ""}</span></div></div>
+    ${r.vid ? `<div class="player"><iframe src="https://www.tiktok.com/player/v1/${esc(r.vid)}?music_info=1&description=1&rel=0" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="Reference video"></iframe></div>` : ""}
+    ${r.on_screen_text ? `<div class="label" style="margin-top:18px">your text</div><div class="ost" style="margin-top:8px"><span>${esc(r.on_screen_text)}</span></div>` : ""}
     ${beats.length ? `<div class="beats">${beats.map((b, i) => `<div class="beat"><i>${i + 1}</i>${esc(b)}</div>`).join("")}</div>` : ""}
     ${shots.length ? `<div class="label" style="margin-top:18px">film it</div><div class="shots">${shots.map((s, i) => `<div class="shot"><span class="n">${i + 1}</span><p>${esc(s)}</p></div>`).join("")}</div>` : ""}
     ${r.audio_name ? (r.audio_url ? `<a class="chip blue" style="margin-top:14px;max-width:100%;overflow:hidden" href="${esc(r.audio_url)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>${esc(r.audio_name)}</a>` : `<span class="chip" style="margin-top:14px">${esc(r.audio_name)}</span>`) : ""}
     <div class="row" style="margin-top:16px;gap:10px">${r.url ? `<a class="btn3d ghost" href="${esc(r.url)}" target="_blank" rel="noopener">watch original</a>` : ""}<button class="btn3d" id="remake">remake this</button></div>`);
   $("#remake").onclick = () => { refSel = r.id; closeSheet(); go("submit"); };
+}
+
+
+// Reference details (thumbnail, shot list, sound, video id) from HQ's public reference file, matched by URL
+const REF_SRC = "https://hq.getgopeak.com/data/outliers.json";
+async function enrichRefs(refs) {
+  try {
+    const d = await (await fetch(REF_SRC + "?t=" + Math.floor(Date.now() / 36e5))).json();
+    const by = Object.fromEntries((d.outliers || []).map((o) => [o.url, o]));
+    return refs.map((r) => {
+      const o = by[r.url] || {}, pick = (k) => (Array.isArray(r[k]) ? (r[k].length ? r[k] : o[k]) : r[k] || o[k]);
+      return { ...r, thumb: o.thumb, vid: o.id || (String(r.url).match(/\/video\/(\d+)/) || [])[1], shot_list: pick("shot_list") || [], structure: pick("structure") || [],
+        on_screen_text: pick("on_screen_text"), hook: o.hook_paraphrase, audio_name: pick("audio_name"), audio_url: pick("audio_url"),
+        length_sec: pick("length_sec"), est_film_minutes: o.est_film_minutes, difficulty: pick("difficulty"), format: pick("format"), views: o.views || r.views };
+    });
+  } catch { return refs; }
 }
 
 // ---------- profile ----------
